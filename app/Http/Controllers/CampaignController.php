@@ -8,6 +8,28 @@ use Illuminate\Support\Str;
 
 class CampaignController extends Controller
 {
+    /**
+     * Helper privat untuk mengonversi berbagai format status menjadi integer (1 atau 0)
+     */
+    private function parseStatusValue(mixed $status, int $default = 1): int
+    {
+        if ($status === null || $status === '') {
+            return $default;
+        }
+
+        $strStatus = strtolower(trim((string) $status));
+
+        if (in_array($strStatus, ['1', 'active', 'aktif', 'true'], true)) {
+            return 1;
+        }
+
+        if (in_array($strStatus, ['0', 'non active', 'non-active', 'nonaktif', 'false'], true)) {
+            return 0;
+        }
+
+        return is_numeric($status) ? (int) $status : $default;
+    }
+
     public function index(Request $request)
     {
         $query = Campaign::query();
@@ -18,7 +40,7 @@ class CampaignController extends Controller
         }
 
         if ($request->has('status') && $request->status !== 'Semua') {
-            $statusVal = ($request->status === 'Aktif' || $request->status === '1') ? 1 : 0;
+            $statusVal = $this->parseStatusValue($request->status, 1);
             $query->where('status', $statusVal);
         }
 
@@ -35,13 +57,15 @@ class CampaignController extends Controller
     {
         $request->validate([
             'campaign_name' => 'required|string|max:150',
-            'status' => 'nullable|integer'
+            'status' => 'nullable'
         ]);
+
+        $statusValue = $this->parseStatusValue($request->status, 1);
 
         $campaign = Campaign::create([
             'uid' => (string) Str::uuid(),
             'campaign_name' => $request->campaign_name,
-            'status' => $request->status !== null ? (int) $request->status : 1,
+            'status' => $statusValue,
         ]);
 
         return response()->json([
@@ -53,19 +77,21 @@ class CampaignController extends Controller
 
     public function update(Request $request, mixed $id)
     {
-        $campaign = Campaign::find($id);
+        // Mendukung pencarian berdasarkan ID integer atau UUID string
+        $campaign = Campaign::where('id', $id)->orWhere('uid', $id)->first();
         if (!$campaign) {
             return response()->json(['success' => false, 'message' => 'Campaign tidak ditemukan'], 404);
         }
 
-        // Pastikan status tidak bernilai null dengan memeriksa apakah request mengirimkan status (termasuk angka 0)
-        $statusValue = ($request->has('status') && $request->status !== null && $request->status !== '')
-            ? (int) $request->status
-            : $campaign->status;
-
+        // Tangkap nama campaign jika diisi
         $campaignName = ($request->has('campaign_name') && $request->campaign_name !== null && $request->campaign_name !== '')
             ? $request->campaign_name
             : $campaign->campaign_name;
+
+        // Tangkap dan konversi status dari frontend
+        $statusValue = $request->has('status') 
+            ? $this->parseStatusValue($request->status, (int) $campaign->status)
+            : (int) $campaign->status;
 
         $campaign->update([
             'campaign_name' => $campaignName,
@@ -81,7 +107,8 @@ class CampaignController extends Controller
 
     public function destroy(mixed $id)
     {
-        $campaign = Campaign::find($id);
+        // Mendukung hapus berdasarkan ID integer atau UUID string
+        $campaign = Campaign::where('id', $id)->orWhere('uid', $id)->first();
         if (!$campaign) {
             return response()->json(['success' => false, 'message' => 'Campaign tidak ditemukan'], 404);
         }

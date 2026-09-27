@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Kol;
+use App\Models\Campaign;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class KolService
 {
@@ -56,22 +58,25 @@ class KolService
     }
 
     /**
-     * Helper untuk mengonversi type campaign teks menjadi integer ID
+     * Helper untuk mengonversi type campaign teks/angka menjadi ID campaign yang valid di database
      */
     public function resolveTypeId(mixed $typeInput): int
     {
         if (is_numeric($typeInput)) {
-            return (int)$typeInput;
+            $exists = Campaign::where('id', (int)$typeInput)->exists();
+            if ($exists) {
+                return (int)$typeInput;
+            }
         }
 
-        $typeMap = [
-            'Reguler' => 1,
-            'Nataru' => 1,
-            'Dance' => 2,
-            'Jockers' => 3,
-        ];
+        $campaign = Campaign::where('campaign_name', 'like', "%{$typeInput}%")->first();
 
-        return $typeMap[$typeInput] ?? 1;
+        if ($campaign) {
+            return $campaign->id;
+        }
+
+        $defaultCampaign = Campaign::first();
+        return $defaultCampaign ? $defaultCampaign->id : 1;
     }
 
     public function getAllKols()
@@ -81,68 +86,117 @@ class KolService
 
     public function createKol(array $data)
     {
-        // Generate otomatis referral_code (3 huruf kapital + 5 angka acak) jika belum ada
-        if (!isset($data['referral_code']) && !isset($data['kode_referral'])) {
+        // 1. Generate otomatis referral_code jika belum ada
+        $referralCode = $data['referral_code'] ?? $data['kode_referral'] ?? null;
+        if (empty($referralCode)) {
             $letters = strtoupper(Str::random(3));
             $numbers = mt_rand(10000, 99999);
-            $data['referral_code'] = $letters . $numbers;
-        } else {
-            $data['referral_code'] = $data['referral_code'] ?? $data['kode_referral'];
+            $referralCode = $letters . $numbers;
         }
 
-        // Mapping field alternatif dari frontend jika diperlukan
-        $data['uid'] = $data['uid'] ?? (string) Str::uuid();
-        $data['name'] = $data['name'] ?? $data['nama_kol'] ?? null;
-        $data['whatsapp'] = $data['whatsapp'] ?? $data['nomor_telepon'] ?? null;
-        $data['city_name'] = $data['city_name'] ?? $data['kota_asal'] ?? null;
+        // 2. Mapping field secara eksplisit agar aman dari field tidak dikenal
+        $name = $data['name'] ?? $data['nama_kol'] ?? null;
+        $username = $data['username'] ?? null;
+        $whatsapp = $data['whatsapp'] ?? $data['nomor_telepon'] ?? null;
+        $cityName = $data['city_name'] ?? $data['kota_asal'] ?? null;
         
         $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? null;
-        $data['province_name'] = $this->resolveProvinceName($rawProvince);
-        $data['province_id'] = is_numeric($rawProvince) ? (int)$rawProvince : 13;
+        $resolvedProvinceName = $this->resolveProvinceName($rawProvince);
+        $provinceId = is_numeric($rawProvince) ? (int)$rawProvince : 13;
 
-        // Konversi type campaign teks menjadi integer ID
         $rawType = $data['type'] ?? $data['tipe_kol'] ?? 1;
-        $data['type'] = $this->resolveTypeId($rawType);
+        $resolvedTypeId = $this->resolveTypeId($rawType);
 
-        $data['campaign_start_date'] = $data['campaign_start_date'] ?? $data['campaign_start'] ?? null;
-        $data['campaign_end_date'] = $data['campaign_end_date'] ?? $data['campaign_end'] ?? null;
+        $startDate = $data['campaign_start_date'] ?? $data['campaign_start'] ?? null;
+        $endDate = $data['campaign_end_date'] ?? $data['campaign_end'] ?? null;
 
-        // Status integer (1 untuk Active/Aktif)
-        $data['status'] = 1;
-        $data['city_id'] = $data['city_id'] ?? 1;
-
-        return Kol::create($data);
+        // 3. Eksekusi Kol::create dengan data yang sudah bersih
+        return Kol::create([
+            'uid' => (string) Str::uuid(),
+            'referral_code' => $referralCode,
+            'name' => $name,
+            'username' => $username,
+            'whatsapp' => $whatsapp,
+            'province_id' => $provinceId,
+            'province_name' => $resolvedProvinceName,
+            'city_id' => 1,
+            'city_name' => $cityName,
+            'type' => $resolvedTypeId,
+            'campaign_start_date' => $startDate,
+            'campaign_end_date' => $endDate,
+            'status' => 1,
+        ]);
     }
 
-    public function updateKol(Kol $kol, array $data)
+    public function updateKol(mixed $kolOrId, array $data)
     {
-        if (isset($data['nama_kol'])) {
-            $data['name'] = $data['nama_kol'];
+        if (!$kolOrId instanceof Kol) {
+            $kol = Kol::where('id', $kolOrId)
+                ->orWhere('id', (int)$kolOrId)
+                ->orWhere('uid', (string)$kolOrId)
+                ->first();
+        } else {
+            $kol = $kolOrId;
         }
-        if (isset($data['nomor_telepon'])) {
-            $data['whatsapp'] = $data['nomor_telepon'];
+
+        if (!$kol) {
+            return null;
         }
-        if (isset($data['kota_asal'])) {
-            $data['city_name'] = $data['kota_asal'];
+
+        $updateData = [];
+
+        if (isset($data['name']) || isset($data['nama_kol'])) {
+            $updateData['name'] = $data['name'] ?? $data['nama_kol'];
+        }
+        if (isset($data['username'])) {
+            $updateData['username'] = $data['username'];
+        }
+        if (isset($data['whatsapp']) || isset($data['nomor_telepon'])) {
+            $updateData['whatsapp'] = $data['whatsapp'] ?? $data['nomor_telepon'];
+        }
+        if (isset($data['city_name']) || isset($data['kota_asal'])) {
+            $updateData['city_name'] = $data['city_name'] ?? $data['kota_asal'];
         }
 
         if (isset($data['province_name']) || isset($data['provinsi'])) {
             $rawProvince = $data['province_name'] ?? $data['provinsi'];
-            $data['province_name'] = $this->resolveProvinceName($rawProvince);
-            $data['province_id'] = is_numeric($rawProvince) ? (int)$rawProvince : $kol->province_id;
+            $updateData['province_name'] = $this->resolveProvinceName($rawProvince);
+            $updateData['province_id'] = is_numeric($rawProvince) ? (int)$rawProvince : $kol->province_id;
         }
 
         if (isset($data['type']) || isset($data['tipe_kol'])) {
             $rawType = $data['type'] ?? $data['tipe_kol'];
-            $data['type'] = $this->resolveTypeId($rawType);
+            $updateData['type'] = $this->resolveTypeId($rawType);
         }
 
-        $kol->update($data);
+        if (isset($data['campaign_start_date']) || isset($data['campaign_start'])) {
+            $updateData['campaign_start_date'] = $data['campaign_start_date'] ?? $data['campaign_start'];
+        }
+
+        if (isset($data['campaign_end_date']) || isset($data['campaign_end'])) {
+            $updateData['campaign_end_date'] = $data['campaign_end_date'] ?? $data['campaign_end'];
+        }
+
+        $kol->update($updateData);
         return $kol;
     }
 
-    public function deleteKol(Kol $kol)
+    /**
+     * Menghapus KOL secara permanen dari tabel MySQL
+     */
+    public function deleteKol(mixed $kolOrId): bool
     {
-        return $kol->delete();
+        $id = $kolOrId instanceof Kol ? $kolOrId->id : $kolOrId;
+
+        $kol = Kol::where('id', $id)
+            ->orWhere('id', (int)$id)
+            ->orWhere('uid', (string)$id)
+            ->first();
+
+        if (!$kol) {
+            return false;
+        }
+
+        return DB::table('kols')->where('id', $kol->id)->delete() > 0;
     }
 }
