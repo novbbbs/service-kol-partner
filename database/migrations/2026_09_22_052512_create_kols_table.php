@@ -17,7 +17,10 @@ return new class extends Migration {
             $table->string('province_name', 100);
             $table->string('city_id', 50);
             $table->string('city_name', 100);
-            $table->foreignId('type')->constrained('campaigns')->onDelete('cascade');
+            
+            // REVISI: Mengubah dari foreignId angka menjadi string teks campaign
+            $table->string('type')->default('Reguler');
+            
             $table->date('campaign_start_date');
             $table->date('campaign_end_date');
             $table->tinyInteger('status')->default(1)->comment('1 = Active, 0 = Inactive');

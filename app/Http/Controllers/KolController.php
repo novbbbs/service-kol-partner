@@ -51,6 +51,14 @@ class KolController extends Controller
         $kols = $query->latest()->get();
 
         $formatted = $kols->map(function($item) {
+            // Mengambil nama campaign dari relasi secara aman (mendukung berbagai nama kolom seperti campaign_name, name, atau title)
+            $campaignName = optional($item->campaign)->campaign_name 
+                ?? optional($item->campaign)->name 
+                ?? optional($item->campaign)->title;
+
+            // Jika relasi campaign ditemukan, gunakan namanya. Jika tidak, gunakan nilai dari kolom type atau fallback ke 'Reguler'
+            $resolvedType = $campaignName ?? ($item->type ? (is_numeric($item->type) ? 'Reguler' : $item->type) : 'Reguler');
+
             return [
                 'id' => $item->id,
                 'uid' => $item->uid,
@@ -65,8 +73,8 @@ class KolController extends Controller
                 'city_name' => $item->city_name,
                 'provinsi' => $item->province_name,
                 'province_name' => $item->province_name,
-                'tipe_kol' => optional($item->campaign)->campaign_name ?? $item->type,
-                'type' => optional($item->campaign)->campaign_name ?? $item->type,
+                'tipe_kol' => $resolvedType,
+                'type' => $resolvedType,
                 'campaign_start_date' => $item->campaign_start_date,
                 'campaign_end_date' => $item->campaign_end_date,
                 'status' => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
@@ -86,7 +94,6 @@ class KolController extends Controller
     public function store(Request $request)
     {
         try {
-            // Mendelegasikan pembuatan data ke KolService yang sudah fleksibel menangani berbagai nama field
             $kol = $this->kolService->createKol($request->all());
 
             return response()->json([

@@ -10,51 +10,55 @@ use Illuminate\Support\Facades\DB;
 class KolService
 {
     /**
-     * Helper untuk mengubah ID angka provinsi menjadi teks nama provinsi secara lengkap (1-34)
+     * Helper untuk mengubah ID angka provinsi atau teks nama provinsi menjadi teks nama provinsi
      */
     public function resolveProvinceName(mixed $provinceInput): string
     {
-        if (is_numeric($provinceInput)) {
-            $provinceMap = [
-                1 => 'ACEH',
-                2 => 'SUMATERA UTARA',
-                3 => 'SUMATERA BARAT',
-                4 => 'RIAU',
-                5 => 'JAMBI',
-                6 => 'SUMATERA SELATAN',
-                7 => 'BENGKULU',
-                8 => 'LAMPUNG',
-                9 => 'KEPULAUAN BANGKA BELITUNG',
-                10 => 'KEPULAUAN RIAU',
-                11 => 'DKI JAKARTA',
-                12 => 'JAWA BARAT',
-                13 => 'JAWA TENGAH',
-                14 => 'DI YOGYAKARTA',
-                15 => 'JAWA TIMUR',
-                16 => 'BANTEN',
-                17 => 'BALI',
-                18 => 'NUSA TENGGARA BARAT',
-                19 => 'NUSA TENGGARA TIMUR',
-                20 => 'KALIMANTAN BARAT',
-                21 => 'KALIMANTAN TENGAH',
-                22 => 'KALIMANTAN SELATAN',
-                23 => 'KALIMANTAN TIMUR',
-                24 => 'KALIMANTAN UTARA',
-                25 => 'SULAWESI UTARA',
-                26 => 'SULAWESI TENGAH',
-                27 => 'SULAWESI SELATAN',
-                28 => 'SULAWESI TENGGARA',
-                29 => 'GORONTALO',
-                30 => 'SULAWESI BARAT',
-                31 => 'MALUKU',
-                32 => 'MALUKU UTARA',
-                33 => 'PAPUA',
-                34 => 'PAPUA BARAT'
-            ];
-            return $provinceMap[(int)$provinceInput] ?? 'JAWA TENGAH';
+        if (empty($provinceInput)) {
+            return '';
         }
 
-        return strtoupper((string)$provinceInput);
+        if (is_numeric($provinceInput)) {
+            $provinceMap = [
+                1 => 'Aceh',
+                2 => 'Sumatera Utara',
+                3 => 'Sumatera Barat',
+                4 => 'Riau',
+                5 => 'Jambi',
+                6 => 'Sumatera Selatan',
+                7 => 'Bengkulu',
+                8 => 'Lampung',
+                9 => 'Kepulauan Bangka Belitung',
+                10 => 'Kepulauan Riau',
+                11 => 'DKI Jakarta',
+                12 => 'Jawa Barat',
+                13 => 'Jawa Tengah',
+                14 => 'DI Yogyakarta',
+                15 => 'Jawa Timur',
+                16 => 'Banten',
+                17 => 'Bali',
+                18 => 'Nusa Tenggara Barat',
+                19 => 'Nusa Tenggara Timur',
+                20 => 'Kalimantan Barat',
+                21 => 'Kalimantan Tengah',
+                22 => 'Kalimantan Selatan',
+                23 => 'Kalimantan Timur',
+                24 => 'Kalimantan Utara',
+                25 => 'Sulawesi Utara',
+                26 => 'Sulawesi Tengah',
+                27 => 'Sulawesi Selatan',
+                28 => 'Sulawesi Tenggara',
+                29 => 'Gorontalo',
+                30 => 'Sulawesi Barat',
+                31 => 'Maluku',
+                32 => 'Maluku Utara',
+                33 => 'Papua',
+                34 => 'Papua Barat'
+            ];
+            return $provinceMap[(int)$provinceInput] ?? '';
+        }
+
+        return trim((string)$provinceInput);
     }
 
     /**
@@ -94,14 +98,21 @@ class KolService
             $referralCode = $letters . $numbers;
         }
 
-        // 2. Mapping field secara eksplisit agar aman dari field tidak dikenal
+        // 2. Mapping field secara eksplisit
         $name = $data['name'] ?? $data['nama_kol'] ?? null;
         $username = $data['username'] ?? null;
         $whatsapp = $data['whatsapp'] ?? $data['nomor_telepon'] ?? null;
         $cityName = $data['city_name'] ?? $data['kota_asal'] ?? null;
         
-        $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? null;
+        // Tangkap berbagai kemungkinan key provinsi dari request frontend
+        $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'] ?? null;
         $resolvedProvinceName = $this->resolveProvinceName($rawProvince);
+        
+        // Fallback jika province_name masih kosong tapi ada province_id
+        if (empty($resolvedProvinceName) && !empty($data['province_id'])) {
+            $resolvedProvinceName = $this->resolveProvinceName($data['province_id']);
+        }
+
         $provinceId = is_numeric($rawProvince) ? (int)$rawProvince : 13;
 
         $rawType = $data['type'] ?? $data['tipe_kol'] ?? 1;
@@ -110,7 +121,7 @@ class KolService
         $startDate = $data['campaign_start_date'] ?? $data['campaign_start'] ?? null;
         $endDate = $data['campaign_end_date'] ?? $data['campaign_end'] ?? null;
 
-        // 3. Eksekusi Kol::create dengan data yang sudah bersih
+        // 3. Eksekusi Kol::create murni sesuai data yang dikirimkan
         return Kol::create([
             'uid' => (string) Str::uuid(),
             'referral_code' => $referralCode,
@@ -158,9 +169,15 @@ class KolService
             $updateData['city_name'] = $data['city_name'] ?? $data['kota_asal'];
         }
 
-        if (isset($data['province_name']) || isset($data['provinsi'])) {
-            $rawProvince = $data['province_name'] ?? $data['provinsi'];
-            $updateData['province_name'] = $this->resolveProvinceName($rawProvince);
+        if (isset($data['province_name']) || isset($data['provinsi']) || isset($data['province'])) {
+            $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'];
+            $resolvedProv = $this->resolveProvinceName($rawProvince);
+            
+            if (empty($resolvedProv) && !empty($data['province_id'])) {
+                $resolvedProv = $this->resolveProvinceName($data['province_id']);
+            }
+
+            $updateData['province_name'] = $resolvedProv;
             $updateData['province_id'] = is_numeric($rawProvince) ? (int)$rawProvince : $kol->province_id;
         }
 
@@ -181,9 +198,6 @@ class KolService
         return $kol;
     }
 
-    /**
-     * Menghapus KOL secara permanen dari tabel MySQL
-     */
     public function deleteKol(mixed $kolOrId): bool
     {
         $id = $kolOrId instanceof Kol ? $kolOrId->id : $kolOrId;
