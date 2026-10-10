@@ -36,7 +36,7 @@ class Kol extends Model
         'status' => 'integer',
         'province_id' => 'integer',
         'city_id' => 'integer',
-        'type' => 'integer',
+        'type' => 'string', // Diubah ke string agar nama campaign/tipe tersimpan dengan benar
         'campaign_start_date' => 'date:Y-m-d',
         'campaign_end_date' => 'date:Y-m-d',
     ];

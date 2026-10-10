@@ -83,9 +83,41 @@ class KolService
         return $defaultCampaign ? $defaultCampaign->id : 1;
     }
 
-    public function getAllKols()
+    /**
+     * Mengambil data KOL dengan dukungan Search & Filter dari Backend
+     */
+    public function getAllKols(?array $filters = [])
     {
-        return Kol::with('campaign')->latest()->get();
+        $query = Kol::with('campaign');
+
+        // 1. Filter Search (Pencarian universal)
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('username', 'like', "%{$search}%")
+                  ->orWhere('referral_code', 'like', "%{$search}%")
+                  ->orWhere('whatsapp', 'like', "%{$search}%")
+                  ->orWhere('city_name', 'like', "%{$search}%")
+                  ->orWhere('province_name', 'like', "%{$search}%");
+            });
+        }
+
+        // 2. Filter Status (ACTIVE / NON-ACTIVE)
+        if (isset($filters['status']) && !in_array($filters['status'], ['Semua', 'Semua Status', ''])) {
+            $statusVal = (strtoupper($filters['status']) === 'ACTIVE' || $filters['status'] === '1') ? 1 : 0;
+            $query->where('status', $statusVal);
+        }
+
+        // 3. Filter Tanggal (Start Date & End Date)
+        if (!empty($filters['start_date'])) {
+            $query->whereDate('campaign_start_date', '>=', $filters['start_date']);
+        }
+        if (!empty($filters['end_date'])) {
+            $query->whereDate('campaign_end_date', '<=', $filters['end_date']);
+        }
+
+        return $query->latest()->get();
     }
 
     public function createKol(array $data)
@@ -104,11 +136,9 @@ class KolService
         $whatsapp = $data['whatsapp'] ?? $data['nomor_telepon'] ?? null;
         $cityName = $data['city_name'] ?? $data['kota_asal'] ?? null;
         
-        // Tangkap berbagai kemungkinan key provinsi dari request frontend
         $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'] ?? null;
         $resolvedProvinceName = $this->resolveProvinceName($rawProvince);
         
-        // Fallback jika province_name masih kosong tapi ada province_id
         if (empty($resolvedProvinceName) && !empty($data['province_id'])) {
             $resolvedProvinceName = $this->resolveProvinceName($data['province_id']);
         }
@@ -121,7 +151,6 @@ class KolService
         $startDate = $data['campaign_start_date'] ?? $data['campaign_start'] ?? null;
         $endDate = $data['campaign_end_date'] ?? $data['campaign_end'] ?? null;
 
-        // 3. Eksekusi Kol::create murni sesuai data yang dikirimkan
         return Kol::create([
             'uid' => (string) Str::uuid(),
             'referral_code' => $referralCode,
@@ -155,6 +184,12 @@ class KolService
         }
 
         $updateData = [];
+
+        // TAMBAHAN: Menangani pembaruan status (misalnya dari tombol toggle switch)
+        if (array_key_exists('status', $data)) {
+            $rawStatus = $data['status'];
+            $updateData['status'] = in_array(strtolower(trim((string)$rawStatus)), ['1', 'active', 'aktif', 'true'], true) ? 1 : 0;
+        }
 
         if (isset($data['name']) || isset($data['nama_kol'])) {
             $updateData['name'] = $data['name'] ?? $data['nama_kol'];

@@ -34,12 +34,18 @@ class CampaignController extends Controller
     {
         $query = Campaign::query();
 
+        // 1. Filter Search (Pencarian universal pada campaign)
         if ($request->has('search') && $request->search != '') {
             $search = $request->search;
-            $query->where('campaign_name', 'like', "%{$search}%");
+            $query->where(function($q) use ($search) {
+                $q->where('campaign_name', 'like', "%{$search}%")
+                  ->orWhere('name', 'like', "%{$search}%")
+                  ->orWhere('title', 'like', "%{$search}%");
+            });
         }
 
-        if ($request->has('status') && $request->status !== 'Semua') {
+        // 2. Filter Status (Hanya filter jika status bukan 'Semua', 'Semua Status', atau kosong)
+        if ($request->has('status') && !in_array($request->status, ['Semua', 'Semua Status', ''])) {
             $statusVal = $this->parseStatusValue($request->status, 1);
             $query->where('status', $statusVal);
         }
@@ -77,18 +83,15 @@ class CampaignController extends Controller
 
     public function update(Request $request, mixed $id)
     {
-        // Mendukung pencarian berdasarkan ID integer atau UUID string
         $campaign = Campaign::where('id', $id)->orWhere('uid', $id)->first();
         if (!$campaign) {
             return response()->json(['success' => false, 'message' => 'Campaign tidak ditemukan'], 404);
         }
 
-        // Tangkap nama campaign jika diisi
         $campaignName = ($request->has('campaign_name') && $request->campaign_name !== null && $request->campaign_name !== '')
             ? $request->campaign_name
             : $campaign->campaign_name;
 
-        // Tangkap dan konversi status dari frontend
         $statusValue = $request->has('status') 
             ? $this->parseStatusValue($request->status, (int) $campaign->status)
             : (int) $campaign->status;
@@ -107,7 +110,6 @@ class CampaignController extends Controller
 
     public function destroy(mixed $id)
     {
-        // Mendukung hapus berdasarkan ID integer atau UUID string
         $campaign = Campaign::where('id', $id)->orWhere('uid', $id)->first();
         if (!$campaign) {
             return response()->json(['success' => false, 'message' => 'Campaign tidak ditemukan'], 404);
