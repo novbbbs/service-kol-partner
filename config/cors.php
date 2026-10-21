@@ -19,8 +19,11 @@ return [
 
     'allowed_methods' => ['*'],
 
-    // Ubah dari '*' menjadi array domain frontend Anda (wajib spesifik jika supports_credentials bernilai true)
-    'allowed_origins' => ['http://localhost:5173'],
+    // Mengizinkan akses dari localhost dan IP jaringan lokal Anda (diperbaiki penulisannya)
+    'allowed_origins' => [
+        'http://localhost:5173',
+        'http://192.168.1.246:5173',
+    ],
 
     'allowed_origins_patterns' => [],
 
@@ -30,7 +33,7 @@ return [
 
     'max_age' => 0,
 
-    // Ubah menjadi true agar cookie sesi Sanctum dapat dikirim dan diterima oleh frontend React
+    // Diatur true agar token/cookie autentikasi dapat dikirim dan diterima
     'supports_credentials' => true,
 
 ];
