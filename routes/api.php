@@ -6,15 +6,15 @@ use App\Http\Controllers\CampaignController;
 use App\Http\Controllers\KolController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LoginController;
+use App\Http\Controllers\ReservationController;
 
 // ==========================================
 // ROUTE AUTENTIKASI PUBLIK
 // ==========================================
 Route::post('/login', [LoginController::class, 'login']);
 
-
 // ==========================================
-// ROUTE YANG DPROTEKSI SANCTUM (Wajib membawa Token)
+// ROUTE YANG DIPROTEKSI SANCTUM (Wajib membawa Token)
 // ==========================================
 Route::middleware('auth:sanctum')->group(function () {
     
@@ -34,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Routes untuk Master KOL
     Route::get('/kols', [KolController::class, 'index']);
+    Route::get('/kols/check-export', [KolController::class, 'checkExport']);
     Route::post('/kols', [KolController::class, 'store']);
     Route::put('/kols/{id}', [KolController::class, 'update']);
     Route::delete('/kols/{id}', [KolController::class, 'destroy']);
@@ -41,4 +42,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Routes untuk Dashboard (Reguler & Event / Campaign Summary)
     Route::get('/dashboard/summary', [DashboardController::class, 'index']);
 
+    // ==========================================
+    // Routes untuk Data Reservasi (Menggunakan prefix admin/)
+    // ==========================================
+    Route::get('/admin/reservations', [ReservationController::class, 'index']);
+    // Route::post('/admin/reservations', [ReservationController::class, 'store']);
+    // Route::put('/admin/reservations/{id}', [ReservationController::class, 'update']);
+    // Route::delete('/admin/reservations/{id}', [ReservationController::class, 'destroy']);
+    
 });

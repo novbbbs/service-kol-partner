@@ -19,10 +19,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    // Mengizinkan akses dari localhost dan IP jaringan lokal Anda (diperbaiki penulisannya)
+    /*
+    | Mengizinkan akses dari localhost serta berbagai IP jaringan lokal tempat kerja 
+    | (aman untuk dibiarkan bersamaan tanpa harus dihapus salah satu).
+    */
     'allowed_origins' => [
         'http://localhost:5173',
         'http://192.168.1.246:5173',
+        'http://10.14.206.87:5173',
     ],
 
     'allowed_origins_patterns' => [],
@@ -33,7 +37,9 @@ return [
 
     'max_age' => 0,
 
-    // Diatur true agar token/cookie autentikasi dapat dikirim dan diterima
+    /*
+    | Diatur true agar token/cookie autentikasi dapat dikirim dan diterima dengan lancar
+    */
     'supports_credentials' => true,
 
 ];

@@ -6,64 +6,66 @@ use App\Models\Kol;
 use App\Models\Campaign;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class KolService
 {
-    /**
-     * Helper untuk mengubah ID angka provinsi atau teks nama provinsi menjadi teks nama provinsi
-     */
-    public function resolveProvinceName(mixed $provinceInput): string
+    private function logActivity(string $description, ?int $subjectId = null)
     {
-        if (empty($provinceInput)) {
-            return '';
+        try {
+            if (DB::getSchemaBuilder()->hasTable('activity_logs')) {
+                DB::table('activity_logs')->insert([
+                    'description' => $description,
+                    'subject_type' => Kol::class,
+                    'subject_id' => $subjectId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Gagal mencatat activity log: ' . $e->getMessage());
         }
-
-        if (is_numeric($provinceInput)) {
-            $provinceMap = [
-                1 => 'Aceh',
-                2 => 'Sumatera Utara',
-                3 => 'Sumatera Barat',
-                4 => 'Riau',
-                5 => 'Jambi',
-                6 => 'Sumatera Selatan',
-                7 => 'Bengkulu',
-                8 => 'Lampung',
-                9 => 'Kepulauan Bangka Belitung',
-                10 => 'Kepulauan Riau',
-                11 => 'DKI Jakarta',
-                12 => 'Jawa Barat',
-                13 => 'Jawa Tengah',
-                14 => 'DI Yogyakarta',
-                15 => 'Jawa Timur',
-                16 => 'Banten',
-                17 => 'Bali',
-                18 => 'Nusa Tenggara Barat',
-                19 => 'Nusa Tenggara Timur',
-                20 => 'Kalimantan Barat',
-                21 => 'Kalimantan Tengah',
-                22 => 'Kalimantan Selatan',
-                23 => 'Kalimantan Timur',
-                24 => 'Kalimantan Utara',
-                25 => 'Sulawesi Utara',
-                26 => 'Sulawesi Tengah',
-                27 => 'Sulawesi Selatan',
-                28 => 'Sulawesi Tenggara',
-                29 => 'Gorontalo',
-                30 => 'Sulawesi Barat',
-                31 => 'Maluku',
-                32 => 'Maluku Utara',
-                33 => 'Papua',
-                34 => 'Papua Barat'
-            ];
-            return $provinceMap[(int)$provinceInput] ?? '';
-        }
-
-        return trim((string)$provinceInput);
     }
 
-    /**
-     * Helper untuk mengonversi type campaign teks/angka menjadi ID campaign yang valid di database
-     */
+    private function getProvinceMapping(mixed $input): array
+    {
+        $provinceMap = [
+            1 => 'Aceh', 2 => 'Sumatera Utara', 3 => 'Sumatera Barat', 4 => 'Riau', 5 => 'Jambi',
+            6 => 'Sumatera Selatan', 7 => 'Bengkulu', 8 => 'Lampung', 9 => 'Kepulauan Bangka Belitung', 10 => 'Kepulauan Riau',
+            11 => 'DKI Jakarta', 12 => 'Jawa Barat', 13 => 'Jawa Tengah', 14 => 'DI Yogyakarta', 15 => 'Jawa Timur',
+            16 => 'Banten', 17 => 'Bali', 18 => 'Nusa Tenggara Barat', 19 => 'Nusa Tenggara Timur', 20 => 'Kalimantan Barat',
+            21 => 'Kalimantan Tengah', 22 => 'Kalimantan Selatan', 23 => 'Kalimantan Timur', 24 => 'Kalimantan Utara', 25 => 'Sulawesi Utara',
+            26 => 'Sulawesi Tengah', 27 => 'Sulawesi Selatan', 28 => 'Sulawesi Tenggara', 29 => 'Gorontalo', 30 => 'Sulawesi Barat',
+            31 => 'Maluku', 32 => 'Maluku Utara', 33 => 'Papua', 34 => 'Papua Barat'
+        ];
+
+        if (empty($input)) {
+            return ['id' => 13, 'name' => 'Jawa Tengah'];
+        }
+
+        if (is_numeric($input)) {
+            $id = (int)$input;
+            return [
+                'id' => $id,
+                'name' => $provinceMap[$id] ?? 'Jawa Tengah'
+            ];
+        }
+
+        $name = trim((string)$input);
+        $matchedId = 13;
+        foreach ($provinceMap as $id => $provName) {
+            if (strcasecmp($provName, $name) === 0) {
+                $matchedId = $id;
+                break;
+            }
+        }
+
+        return [
+            'id' => $matchedId,
+            'name' => $name
+        ];
+    }
+
     public function resolveTypeId(mixed $typeInput): int
     {
         if (is_numeric($typeInput)) {
@@ -73,24 +75,23 @@ class KolService
             }
         }
 
-        $campaign = Campaign::where('campaign_name', 'like', "%{$typeInput}%")->first();
-
-        if ($campaign) {
-            return $campaign->id;
+        $campaignName = is_string($typeInput) ? trim($typeInput) : '';
+        
+        if (!empty($campaignName)) {
+            $campaign = Campaign::where('campaign_name', 'like', "%{$campaignName}%")->first();
+            if ($campaign) {
+                return $campaign->id;
+            }
         }
 
         $defaultCampaign = Campaign::first();
         return $defaultCampaign ? $defaultCampaign->id : 1;
     }
 
-    /**
-     * Mengambil data KOL dengan dukungan Search & Filter dari Backend
-     */
     public function getAllKols(?array $filters = [])
     {
         $query = Kol::with('campaign');
 
-        // 1. Filter Search (Pencarian universal)
         if (!empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
@@ -103,13 +104,11 @@ class KolService
             });
         }
 
-        // 2. Filter Status (ACTIVE / NON-ACTIVE)
         if (isset($filters['status']) && !in_array($filters['status'], ['Semua', 'Semua Status', ''])) {
             $statusVal = (strtoupper($filters['status']) === 'ACTIVE' || $filters['status'] === '1') ? 1 : 0;
             $query->where('status', $statusVal);
         }
 
-        // 3. Filter Tanggal (Start Date & End Date)
         if (!empty($filters['start_date'])) {
             $query->whereDate('campaign_start_date', '>=', $filters['start_date']);
         }
@@ -122,28 +121,48 @@ class KolService
 
     public function createKol(array $data)
     {
-        // 1. Generate otomatis referral_code jika belum ada
-        $referralCode = $data['referral_code'] ?? $data['kode_referral'] ?? null;
-        if (empty($referralCode)) {
-            $letters = strtoupper(Str::random(3));
+        // 1. Buang ID, UID, dan Referral Code lama agar saat regenerate sistem membuat baris baru yang bersih
+        unset($data['id'], $data['uid'], $data['referral_code'], $data['kode_referral']);
+
+        // 2. Generate otomatis referral_code baru: Tepat 3 huruf kapital + 5 angka (Contoh: ABC12345)
+        do {
+            $letters = '';
+            for ($i = 0; $i < 3; $i++) {
+                $letters .= chr(mt_rand(65, 90)); // A-Z
+            }
             $numbers = mt_rand(10000, 99999);
             $referralCode = $letters . $numbers;
-        }
+            
+            $exists = Kol::where('referral_code', $referralCode)->exists();
+        } while ($exists);
 
-        // 2. Mapping field secara eksplisit
         $name = $data['name'] ?? $data['nama_kol'] ?? null;
         $username = $data['username'] ?? null;
         $whatsapp = $data['whatsapp'] ?? $data['nomor_telepon'] ?? null;
         $cityName = $data['city_name'] ?? $data['kota_asal'] ?? null;
         
-        $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'] ?? null;
-        $resolvedProvinceName = $this->resolveProvinceName($rawProvince);
-        
-        if (empty($resolvedProvinceName) && !empty($data['province_id'])) {
-            $resolvedProvinceName = $this->resolveProvinceName($data['province_id']);
-        }
+        $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'] ?? $data['province_id'] ?? null;
+        $resolvedProvince = $this->getProvinceMapping($rawProvince);
+        $provinceId = $resolvedProvince['id'];
+        $resolvedProvinceName = $resolvedProvince['name'];
 
-        $provinceId = is_numeric($rawProvince) ? (int)$rawProvince : 13;
+        $cityId = 1;
+        try {
+            if (!empty($cityName)) {
+                $tableName = DB::getSchemaBuilder()->hasTable('regencies') ? 'regencies' : (DB::getSchemaBuilder()->hasTable('cities') ? 'cities' : null);
+                if ($tableName) {
+                    $cityRecord = DB::table($tableName)
+                        ->where('name', 'like', "%{$cityName}%")
+                        ->first();
+                    if ($cityRecord) {
+                        $cityId = $cityRecord->id;
+                        $cityName = $cityRecord->name;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Fallback aman
+        }
 
         $rawType = $data['type'] ?? $data['tipe_kol'] ?? 1;
         $resolvedTypeId = $this->resolveTypeId($rawType);
@@ -151,7 +170,7 @@ class KolService
         $startDate = $data['campaign_start_date'] ?? $data['campaign_start'] ?? null;
         $endDate = $data['campaign_end_date'] ?? $data['campaign_end'] ?? null;
 
-        return Kol::create([
+        $kol = Kol::create([
             'uid' => (string) Str::uuid(),
             'referral_code' => $referralCode,
             'name' => $name,
@@ -159,13 +178,17 @@ class KolService
             'whatsapp' => $whatsapp,
             'province_id' => $provinceId,
             'province_name' => $resolvedProvinceName,
-            'city_id' => 1,
+            'city_id' => $cityId,
             'city_name' => $cityName,
             'type' => $resolvedTypeId,
             'campaign_start_date' => $startDate,
             'campaign_end_date' => $endDate,
-            'status' => 1,
+            'status' => isset($data['status']) ? (int)$data['status'] : 1,
         ]);
+
+        $this->logActivity("Menambahkan data KOL baru: {$name} (Kode: {$referralCode})", $kol->id);
+
+        return $kol;
     }
 
     public function updateKol(mixed $kolOrId, array $data)
@@ -185,10 +208,13 @@ class KolService
 
         $updateData = [];
 
-        // TAMBAHAN: Menangani pembaruan status (misalnya dari tombol toggle switch)
         if (array_key_exists('status', $data)) {
             $rawStatus = $data['status'];
-            $updateData['status'] = in_array(strtolower(trim((string)$rawStatus)), ['1', 'active', 'aktif', 'true'], true) ? 1 : 0;
+            $statusVal = in_array(strtolower(trim((string)$rawStatus)), ['1', 'active', 'aktif', 'true'], true) ? 1 : 0;
+            $updateData['status'] = $statusVal;
+            
+            $statusText = $statusVal === 1 ? 'ACTIVE' : 'INACTIVE';
+            $this->logActivity("Mengubah status KOL '{$kol->name}' menjadi {$statusText}", $kol->id);
         }
 
         if (isset($data['name']) || isset($data['nama_kol'])) {
@@ -204,16 +230,12 @@ class KolService
             $updateData['city_name'] = $data['city_name'] ?? $data['kota_asal'];
         }
 
-        if (isset($data['province_name']) || isset($data['provinsi']) || isset($data['province'])) {
-            $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'];
-            $resolvedProv = $this->resolveProvinceName($rawProvince);
+        if (isset($data['province_name']) || isset($data['provinsi']) || isset($data['province']) || isset($data['province_id'])) {
+            $rawProvince = $data['province_name'] ?? $data['provinsi'] ?? $data['province'] ?? $data['province_id'];
+            $resolvedProv = $this->getProvinceMapping($rawProvince);
             
-            if (empty($resolvedProv) && !empty($data['province_id'])) {
-                $resolvedProv = $this->resolveProvinceName($data['province_id']);
-            }
-
-            $updateData['province_name'] = $resolvedProv;
-            $updateData['province_id'] = is_numeric($rawProvince) ? (int)$rawProvince : $kol->province_id;
+            $updateData['province_name'] = $resolvedProv['name'];
+            $updateData['province_id'] = $resolvedProv['id'];
         }
 
         if (isset($data['type']) || isset($data['tipe_kol'])) {
@@ -227,6 +249,10 @@ class KolService
 
         if (isset($data['campaign_end_date']) || isset($data['campaign_end'])) {
             $updateData['campaign_end_date'] = $data['campaign_end_date'] ?? $data['campaign_end'];
+        }
+
+        if (!empty($updateData) && (!array_key_exists('status', $updateData) || count($updateData) > 1)) {
+            $this->logActivity("Memperbarui data KOL: {$kol->name}", $kol->id);
         }
 
         $kol->update($updateData);
@@ -246,6 +272,15 @@ class KolService
             return false;
         }
 
-        return DB::table('kols')->where('id', $kol->id)->delete() > 0;
+        $kolName = $kol->name;
+        $kolId = $kol->id;
+
+        $deleted = DB::table('kols')->where('id', $kol->id)->delete() > 0;
+
+        if ($deleted) {
+            $this->logActivity("Menghapus data KOL: {$kolName}", $kolId);
+        }
+
+        return $deleted;
     }
 }

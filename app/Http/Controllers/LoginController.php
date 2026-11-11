@@ -21,18 +21,6 @@ class LoginController extends Controller
         // Cek apakah user dengan username tersebut ada
         $user = User::where('username', $request->username)->first();
 
-        // [PENGAMAN OPSIONAL]: Jika user 1234 belum ada atau passwordnya ingin di-reset otomatis jadi 'password123' untuk testing
-        /*
-        if (!$user && $request->username === '1234') {
-            $user = User::create([
-                'name' => 'Admin Saloka',
-                'username' => '1234',
-                'email' => 'admin@saloka.com',
-                'password' => Hash::make('password123')
-            ]);
-        }
-        */
-
         if (!$user || !Auth::attempt($credentials)) {
             return response()->json([
                 'message' => 'Username atau password salah.'
