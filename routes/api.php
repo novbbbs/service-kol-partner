@@ -14,6 +14,13 @@ use App\Http\Controllers\ReservationController;
 Route::post('/login', [LoginController::class, 'login']);
 
 // ==========================================
+// ROUTE PUBLIK UNTUK EKsternal (Web Pembelian Tiket)
+// ==========================================
+// Endpoint POST untuk memvalidasi kode referral dari web pembelian
+Route::post('/kols/validate-referral', [KolController::class, 'validateReferral']);
+
+
+// ==========================================
 // ROUTE YANG DIPROTEKSI SANCTUM (Wajib membawa Token)
 // ==========================================
 Route::middleware('auth:sanctum')->group(function () {
@@ -35,6 +42,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Routes untuk Master KOL
     Route::get('/kols', [KolController::class, 'index']);
     Route::get('/kols/check-export', [KolController::class, 'checkExport']);
+    // 👇 ROUTE UNTUK LOG HISTORY KOL
+    Route::get('/kols/history/{username}', [KolController::class, 'getHistory']);
+    
     Route::post('/kols', [KolController::class, 'store']);
     Route::put('/kols/{id}', [KolController::class, 'update']);
     Route::delete('/kols/{id}', [KolController::class, 'destroy']);

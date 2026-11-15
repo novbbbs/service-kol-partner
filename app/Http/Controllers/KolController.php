@@ -95,6 +95,126 @@ class KolController extends Controller
     }
 
     /**
+     * Mengambil riwayat (Log History) seluruh campaign/tipe KOL berdasarkan username
+     */
+    public function getHistory($username)
+    {
+        try {
+            $cleanUsername = ltrim($username, '@');
+
+            $histories = Kol::with('campaign')
+                            ->where('username', 'like', "%{$cleanUsername}%")
+                            ->orWhere('username', $username)
+                            ->orderBy('campaign_start_date', 'desc')
+                            ->latest()
+                            ->get();
+
+            if ($histories->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Riwayat KOL tidak ditemukan.'
+                ], 404);
+            }
+
+            $formattedHistories = $histories->map(function($item) {
+                $campaignName = optional($item->campaign)->campaign_name 
+                    ?? optional($item->campaign)->name 
+                    ?? optional($item->campaign)->title;
+
+                $resolvedType = $campaignName ?? ($item->type ? (is_numeric($item->type) ? 'Reguler' : $item->type) : 'Reguler');
+
+                return [
+                    'id' => $item->id,
+                    'uid' => $item->uid,
+                    'name' => $item->name,
+                    'username' => $item->username,
+                    'kode_referral' => $item->referral_code,
+                    'whatsapp' => $item->whatsapp,
+                    'city_name' => $item->city_name,
+                    'province_name' => $item->province_name,
+                    'type' => $resolvedType,
+                    'start_date' => $item->campaign_start_date,
+                    'end_date' => $item->campaign_end_date,
+                    'status' => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
+                    'created_at' => $item->created_at,
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Log history KOL berhasil dimuat.',
+                'data' => $formattedHistories
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memuat log history: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Endpoint POST untuk memvalidasi kode referral dari web pembelian tiket eksternal
+     */
+    public function validateReferral(Request $request)
+    {
+        try {
+            $request->validate([
+                'referral_code' => 'required|string'
+            ]);
+
+            $code = trim($request->input('referral_code'));
+
+            $kol = Kol::where('referral_code', $code)
+                      ->orWhere('referral_code', strtoupper($code))
+                      ->first();
+
+            if (!$kol) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Kode referral tidak ditemukan atau salah.'
+                ], 404);
+            }
+
+            // Periksa apakah status KOL aktif (1 = ACTIVE)
+            if ($kol->status != 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Kode referral sudah non-aktif.'
+                ], 422);
+            }
+
+            // Periksa masa berlaku campaign
+            $today = date('Y-m-d');
+            if ($kol->campaign_end_date && $today > $kol->campaign_end_date) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Masa berlaku campaign untuk kode referral ini telah berakhir.'
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Kode referral valid.',
+                'data' => [
+                    'id' => $kol->id,
+                    'name' => $kol->name,
+                    'username' => $kol->username,
+                    'referral_code' => $kol->referral_code,
+                    'type' => $kol->type,
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan pada server: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Memeriksa ketersediaan data sebelum export dilakukan
      */
     public function checkExport(Request $request)
@@ -305,9 +425,6 @@ class KolController extends Controller
                     'data' => $kol
                 ], 200);
             } else {
-                // Proses update data lengkap (Regenerate / Edit)
-                // Menggunakan createKol atau updateKol. Jika ini proses regenerate yang membuat data baru, 
-                // pastikan service mengembalikan data terbaru.
                 $data = $request->all();
                 if (isset($data['nama_kol']) && !isset($data['name'])) {
                     $data['name'] = $data['nama_kol'];
@@ -322,7 +439,6 @@ class KolController extends Controller
                 $updatedKol = $this->kolService->updateKol($kol, $data);
                 
                 if (!$updatedKol) {
-                    // Jika data lama dihapus/diregenerasi jadi baru via service
                     $updatedKol = $kol->fresh();
                 }
 
@@ -353,15 +469,12 @@ class KolController extends Controller
             return;
         }
 
-        // Bersihkan karakter non-digit
         $phone = preg_replace('/[^0-9]/', '', $phone);
 
-        // Ubah format nomor dari 08... menjadi 628...
         if (str_starts_with($phone, '0')) {
             $phone = '62' . substr($phone, 1);
         }
 
-        // Ambil nama campaign relasi jika ada
         $campaignType = optional($kol->campaign)->campaign_name 
             ?? optional($kol->campaign)->name 
             ?? ($kol->type ? (is_numeric($kol->type) ? 'Reguler' : $kol->type) : 'Reguler');
