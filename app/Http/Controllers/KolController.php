@@ -155,66 +155,6 @@ class KolController extends Controller
     }
 
     /**
-     * Endpoint POST untuk memvalidasi kode referral dari web pembelian tiket eksternal
-     */
-    public function validateReferral(Request $request)
-    {
-        try {
-            $request->validate([
-                'referral_code' => 'required|string'
-            ]);
-
-            $code = trim($request->input('referral_code'));
-
-            $kol = Kol::where('referral_code', $code)
-                      ->orWhere('referral_code', strtoupper($code))
-                      ->first();
-
-            if (!$kol) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Kode referral tidak ditemukan atau salah.'
-                ], 404);
-            }
-
-            // Periksa apakah status KOL aktif (1 = ACTIVE)
-            if ($kol->status != 1) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Kode referral sudah non-aktif.'
-                ], 422);
-            }
-
-            // Periksa masa berlaku campaign
-            $today = date('Y-m-d');
-            if ($kol->campaign_end_date && $today > $kol->campaign_end_date) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Masa berlaku campaign untuk kode referral ini telah berakhir.'
-                ], 422);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Kode referral valid.',
-                'data' => [
-                    'id' => $kol->id,
-                    'name' => $kol->name,
-                    'username' => $kol->username,
-                    'referral_code' => $kol->referral_code,
-                    'type' => $kol->type,
-                ]
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Terjadi kesalahan pada server: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
      * Memeriksa ketersediaan data sebelum export dilakukan
      */
     public function checkExport(Request $request)

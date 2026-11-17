@@ -7,6 +7,7 @@ use App\Http\Controllers\KolController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\ReservationController;
+use App\Http\Controllers\ReferralValidationController; // 👈 1. IMPORT CONTROLLER BARU
 
 // ==========================================
 // ROUTE AUTENTIKASI PUBLIK
@@ -14,10 +15,10 @@ use App\Http\Controllers\ReservationController;
 Route::post('/login', [LoginController::class, 'login']);
 
 // ==========================================
-// ROUTE PUBLIK UNTUK EKsternal (Web Pembelian Tiket)
+// ROUTE PUBLIK UNTUK EKSTERNAL (Web Pembelian Tiket)
 // ==========================================
-// Endpoint POST untuk memvalidasi kode referral dari web pembelian
-Route::post('/kols/validate-referral', [KolController::class, 'validateReferral']);
+// Endpoint POST mandiri untuk memvalidasi kode referral dari web pembelian
+Route::post('/validate-referral', [ReferralValidationController::class, 'validateCode']);
 
 
 // ==========================================
