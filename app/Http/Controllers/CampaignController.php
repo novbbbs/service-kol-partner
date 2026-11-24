@@ -37,7 +37,7 @@ class CampaignController extends Controller
         // 1. Filter Search (Pencarian universal pada campaign)
         if ($request->has('search') && $request->search != '') {
             $search = $request->search;
-            $query->where(function($q) use ($search) {
+            $query->where(function ($q) use ($search) {
                 $q->where('campaign_name', 'like', "%{$search}%")
                   ->orWhere('name', 'like', "%{$search}%")
                   ->orWhere('title', 'like', "%{$search}%");
@@ -63,14 +63,19 @@ class CampaignController extends Controller
     {
         $request->validate([
             'campaign_name' => 'required|string|max:150',
+            'discount' => 'nullable|integer|min:0',
             'status' => 'nullable'
         ]);
 
         $statusValue = $this->parseStatusValue($request->status, 1);
+        $discountValue = ($request->has('discount') && $request->discount !== null && $request->discount !== '')
+            ? (int) $request->discount
+            : 0;
 
         $campaign = Campaign::create([
             'uid' => (string) Str::uuid(),
             'campaign_name' => $request->campaign_name,
+            'discount' => $discountValue,
             'status' => $statusValue,
         ]);
 
@@ -88,16 +93,27 @@ class CampaignController extends Controller
             return response()->json(['success' => false, 'message' => 'Campaign tidak ditemukan'], 404);
         }
 
+        $request->validate([
+            'campaign_name' => 'nullable|string|max:150',
+            'discount' => 'nullable|integer|min:0',
+            'status' => 'nullable'
+        ]);
+
         $campaignName = ($request->has('campaign_name') && $request->campaign_name !== null && $request->campaign_name !== '')
             ? $request->campaign_name
             : $campaign->campaign_name;
 
-        $statusValue = $request->has('status') 
+        $discountValue = ($request->has('discount') && $request->discount !== null && $request->discount !== '')
+            ? (int) $request->discount
+            : (int) ($campaign->discount ?? 0);
+
+        $statusValue = $request->has('status')
             ? $this->parseStatusValue($request->status, (int) $campaign->status)
             : (int) $campaign->status;
 
         $campaign->update([
             'campaign_name' => $campaignName,
+            'discount' => $discountValue,
             'status' => $statusValue,
         ]);
 

@@ -26,7 +26,7 @@ return [
     'allowed_origins' => [
         'http://localhost:5173',
         'http://192.168.1.246:5173',
-        'http://10.228.22.87:5173',
+        'http://192.168.18.90:5173',
     ],
 
     'allowed_origins_patterns' => [],

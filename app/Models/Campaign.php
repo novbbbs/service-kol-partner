@@ -14,7 +14,8 @@ class Campaign extends Model
 
     protected $fillable = [
         'uid', 
-        'campaign_name', 
+        'campaign_name',
+        'discount',
         'status'
     ];
 
@@ -22,6 +23,7 @@ class Campaign extends Model
      * Casting tipe data kolom agar sesuai saat disimpan/diambil dari database
      */
     protected $casts = [
+        'discount' => 'integer',
         'status' => 'integer',
     ];
 

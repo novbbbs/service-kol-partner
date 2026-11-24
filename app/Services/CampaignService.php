@@ -29,6 +29,7 @@ class CampaignService
         return Campaign::create([
             'uid' => (string) Str::uuid(),
             'campaign_name' => $data['campaign_name'],
+            'discount' => isset($data['discount']) ? (int) $data['discount'] : 0,
             'status' => $data['status'] ?? 1,
         ]);
     }
@@ -37,6 +38,7 @@ class CampaignService
     {
         $campaign->update([
             'campaign_name' => $data['campaign_name'] ?? $campaign->campaign_name,
+            'discount' => isset($data['discount']) ? (int) $data['discount'] : ($campaign->discount ?? 0),
             'status' => $data['status'] ?? $campaign->status,
         ]);
         return $campaign;
