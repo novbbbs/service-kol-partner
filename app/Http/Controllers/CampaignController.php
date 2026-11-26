@@ -8,9 +8,8 @@ use Illuminate\Support\Str;
 
 class CampaignController extends Controller
 {
-    /**
-     * Helper privat untuk mengonversi berbagai format status menjadi integer (1 atau 0)
-     */
+    private const BASE_TICKET_PRICE = 30000;
+
     private function parseStatusValue(mixed $status, int $default = 1): int
     {
         if ($status === null || $status === '') {
@@ -34,7 +33,6 @@ class CampaignController extends Controller
     {
         $query = Campaign::query();
 
-        // 1. Filter Search (Pencarian universal pada campaign)
         if ($request->has('search') && $request->search != '') {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
@@ -44,7 +42,6 @@ class CampaignController extends Controller
             });
         }
 
-        // 2. Filter Status (Hanya filter jika status bukan 'Semua', 'Semua Status', atau kosong)
         if ($request->has('status') && !in_array($request->status, ['Semua', 'Semua Status', ''])) {
             $statusVal = $this->parseStatusValue($request->status, 1);
             $query->where('status', $statusVal);
@@ -63,14 +60,15 @@ class CampaignController extends Controller
     {
         $request->validate([
             'campaign_name' => 'required|string|max:150',
-            'discount' => 'nullable|integer|min:0',
+            'discount' => 'required|integer|min:0|max:' . self::BASE_TICKET_PRICE,
             'status' => 'nullable'
+        ], [
+            'discount.min' => 'Potongan harga tidak boleh kurang dari Rp 0.',
+            'discount.max' => 'Potongan harga tidak boleh melebihi harga acuan (Rp ' . number_format(self::BASE_TICKET_PRICE, 0, ',', '.') . ').',
         ]);
 
         $statusValue = $this->parseStatusValue($request->status, 1);
-        $discountValue = ($request->has('discount') && $request->discount !== null && $request->discount !== '')
-            ? (int) $request->discount
-            : 0;
+        $discountValue = (int) $request->discount;
 
         $campaign = Campaign::create([
             'uid' => (string) Str::uuid(),
@@ -95,8 +93,11 @@ class CampaignController extends Controller
 
         $request->validate([
             'campaign_name' => 'nullable|string|max:150',
-            'discount' => 'nullable|integer|min:0',
+            'discount' => 'nullable|integer|min:0|max:' . self::BASE_TICKET_PRICE,
             'status' => 'nullable'
+        ], [
+            'discount.min' => 'Potongan harga tidak boleh kurang dari Rp 0.',
+            'discount.max' => 'Potongan harga tidak boleh melebihi harga acuan (Rp ' . number_format(self::BASE_TICKET_PRICE, 0, ',', '.') . ').',
         ]);
 
         $campaignName = ($request->has('campaign_name') && $request->campaign_name !== null && $request->campaign_name !== '')

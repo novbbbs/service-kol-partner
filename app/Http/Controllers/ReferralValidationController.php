@@ -37,7 +37,7 @@ class ReferralValidationController extends Controller
             }
 
             // Periksa apakah status KOL aktif (1 = ACTIVE)
-            if ($kol->status != 1) {
+            if ((int) $kol->status !== 1) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Kode referral sudah non-aktif.'
@@ -53,30 +53,37 @@ class ReferralValidationController extends Controller
                 ], 422);
             }
 
-            // Cari data segment / campaign berdasarkan kolom type pada KOL
+            // Cari data segment / campaign aktif berdasarkan kolom type pada KOL
             $campaign = null;
             if (!empty($kol->type)) {
-                $campaign = Campaign::whereRaw('LOWER(TRIM(campaign_name)) = ?', [strtolower(trim((string) $kol->type))])
-                    ->orWhere('id', $kol->type)
+                $campaign = Campaign::where('status', 1)
+                    ->where(function ($q) use ($kol) {
+                        $q->whereRaw('LOWER(TRIM(campaign_name)) = ?', [strtolower(trim((string) $kol->type))])
+                          ->orWhere('id', $kol->type);
+                    })
                     ->first();
             }
 
-            // Ambil nominal potongan harga dari master campaign (default 0)
-            $discount = $campaign ? (int) ($campaign->discount ?? 0) : 0;
+            // Ambil nominal potongan harga per item dari master campaign (default 0)
+            $discount = $campaign ? max(0, (int) ($campaign->discount ?? 0)) : 0;
 
-            // Cek jika web pembelian ikut mengirimkan harga tiket (opsional)
+            // Cek jika web pembelian ikut mengirimkan harga (asumsi: total harga sebelum diskon)
             $rawPrice = $request->input('original_price')
                 ?? $request->input('ticket_price')
                 ?? $request->input('price');
 
             $qty = max(1, (int) ($request->input('qty', 1)));
-            $originalPrice = $rawPrice !== null ? (int) $rawPrice : null;
-            $totalDiscount = $discount * $qty;
+            $originalPrice = $rawPrice !== null ? max(0, (int) $rawPrice) : null;
+            $rawTotalDiscount = $discount * $qty;
+
+            $effectiveDiscount = $originalPrice !== null
+                ? min($rawTotalDiscount, $originalPrice)
+                : $rawTotalDiscount;
+
             $finalPrice = $originalPrice !== null
-                ? max(0, $originalPrice - $totalDiscount)
+                ? max(0, $originalPrice - $effectiveDiscount)
                 : null;
 
-            // Jika valid, kembalikan data informasi KOL beserta nominal potongan & harga akhir
             return response()->json([
                 'success' => true,
                 'message' => 'Kode referral valid.',
@@ -87,12 +94,18 @@ class ReferralValidationController extends Controller
                     'referral_code' => $kol->referral_code,
                     'type' => $kol->type,
                     'discount' => $discount,
-                    'total_discount' => $totalDiscount,
+                    'total_discount' => $effectiveDiscount,
                     'original_price' => $originalPrice,
                     'final_price' => $finalPrice,
                 ]
             ], 200);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data validasi tidak valid.',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

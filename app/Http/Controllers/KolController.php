@@ -424,7 +424,7 @@ class KolController extends Controller
         $endDate = $kol->campaign_end_date ?? '-';
 
         $message = "Halo *{$kol->name}* (@{$kol->username}),\n\n" .
-                   "Data Campaign KOL Anda telah diperbarui (Regenerated):\n" .
+                   "Data Campaign KOL Anda telah diperbarui:\n" .
                    "🎫 *Kode Referral*: *{$referralCode}*\n" .
                    "📋 *Type Campaign*: {$campaignType}\n" .
                    "📅 *Mulai Campaign*: {$startDate}\n" .
