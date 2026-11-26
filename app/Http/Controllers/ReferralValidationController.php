@@ -53,19 +53,30 @@ class ReferralValidationController extends Controller
                 ], 422);
             }
 
-            // Cari data segment / campaign aktif berdasarkan kolom type pada KOL
+            // Cari data master campaign berdasarkan ID maupun nama tipe pada kolom type KOL
             $campaign = null;
-            if (!empty($kol->type)) {
-                $campaign = Campaign::where('status', 1)
-                    ->where(function ($q) use ($kol) {
-                        $q->whereRaw('LOWER(TRIM(campaign_name)) = ?', [strtolower(trim((string) $kol->type))])
-                          ->orWhere('id', $kol->type);
-                    })
-                    ->first();
+            $rawType = trim((string) ($kol->type ?? ''));
+
+            if ($rawType !== '') {
+                $campaign = Campaign::where(function ($q) use ($rawType) {
+                    if (is_numeric($rawType)) {
+                        $q->where('id', (int) $rawType);
+                    }
+                    $q->orWhereRaw('LOWER(TRIM(campaign_name)) = ?', [strtolower($rawType)]);
+                })
+                ->orderByDesc('status')
+                ->first();
             }
 
-            // Ambil nominal potongan harga per item dari master campaign (default 0)
-            $discount = $campaign ? max(0, (int) ($campaign->discount ?? 0)) : 0;
+            // Resolusi nama tipe campaign (prioritas dari master campaign, fallback ke kolom type KOL / 'Reguler')
+            $resolvedCampaignType = $campaign
+                ? ($campaign->campaign_name ?? $campaign->name ?? $campaign->title ?? 'Reguler')
+                : ($rawType !== '' && !is_numeric($rawType) ? $rawType : 'Reguler');
+
+            // Ambil nominal potongan harga per item hanya jika campaign ditemukan & aktif (default 0)
+            $discount = ($campaign && (int) ($campaign->status ?? 1) === 1)
+                ? max(0, (int) ($campaign->discount ?? 0))
+                : 0;
 
             // Cek jika web pembelian ikut mengirimkan harga (asumsi: total harga sebelum diskon)
             $rawPrice = $request->input('original_price')
@@ -92,7 +103,8 @@ class ReferralValidationController extends Controller
                     'name' => $kol->name,
                     'username' => $kol->username,
                     'referral_code' => $kol->referral_code,
-                    'type' => $kol->type,
+                    'type' => $resolvedCampaignType,
+                    'type_id' => $campaign ? $campaign->id : (is_numeric($rawType) ? (int) $rawType : null),
                     'discount' => $discount,
                     'total_discount' => $effectiveDiscount,
                     'original_price' => $originalPrice,
