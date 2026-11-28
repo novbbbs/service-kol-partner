@@ -7,7 +7,10 @@ use App\Services\KolService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Maatwebsite\Excel\Facades\Excel;
+use OpenSpout\Common\Entity\Row;
+use OpenSpout\Common\Entity\Style\Style;
+use OpenSpout\Writer\XLSX\Options;
+use OpenSpout\Writer\XLSX\Writer;
 
 class KolController extends Controller
 {
@@ -24,132 +27,97 @@ class KolController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Kol::with('campaign');
+            $kols = $this->buildFilteredQuery($request)->latest()->get();
 
-            if ($request->filled('search')) {
-                $search = $request->input('search');
-                $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('username', 'like', "%{$search}%")
-                      ->orWhere('referral_code', 'like', "%{$search}%")
-                      ->orWhere('whatsapp', 'like', "%{$search}%")
-                      ->orWhere('city_name', 'like', "%{$search}%")
-                      ->orWhere('province_name', 'like', "%{$search}%");
-                });
-            }
-
-            if ($request->filled('status') && !in_array($request->status, ['Semua', 'Semua Status', ''])) {
-                $statusVal = (strtoupper($request->status) === 'ACTIVE' || $request->status === '1') ? 1 : 0;
-                $query->where('status', $statusVal);
-            }
-
-            if ($request->filled('start_date')) {
-                $query->where('campaign_start_date', '>=', $request->input('start_date'));
-            }
-            if ($request->filled('end_date')) {
-                $query->where('campaign_end_date', '<=', $request->input('end_date'));
-            }
-
-            $kols = $query->latest()->get();
-
-            $formatted = $kols->map(function($item) {
-                $campaignName = optional($item->campaign)->campaign_name 
-                    ?? optional($item->campaign)->name 
-                    ?? optional($item->campaign)->title;
-
-                $resolvedType = $campaignName ?? ($item->type ? (is_numeric($item->type) ? 'Reguler' : $item->type) : 'Reguler');
+            $formatted = $kols->map(function ($item) {
+                $resolvedType = $this->resolveCampaignType($item);
 
                 return [
-                    'id' => $item->id,
-                    'uid' => $item->uid,
-                    'nama_kol' => $item->name,
-                    'name' => $item->name,
-                    'username' => $item->username,
-                    'kode_referral' => $item->referral_code,
-                    'referral_code' => $item->referral_code,
-                    'nomor_telepon' => $item->whatsapp,
-                    'whatsapp' => $item->whatsapp,
-                    'kota_asal' => $item->city_name,
-                    'city_name' => $item->city_name,
-                    'provinsi' => $item->province_name,
-                    'province_name' => $item->province_name,
-                    'tipe_kol' => $resolvedType,
-                    'type' => $resolvedType,
+                    'id'                  => $item->id,
+                    'uid'                 => $item->uid,
+                    'nama_kol'            => $item->name,
+                    'name'                => $item->name,
+                    'username'            => $item->username,
+                    'kode_referral'       => $item->referral_code,
+                    'referral_code'       => $item->referral_code,
+                    'nomor_telepon'       => $item->whatsapp,
+                    'whatsapp'            => $item->whatsapp,
+                    'kota_asal'           => $item->city_name,
+                    'city_name'           => $item->city_name,
+                    'provinsi'            => $item->province_name,
+                    'province_name'       => $item->province_name,
+                    'tipe_kol'            => $resolvedType,
+                    'type'                => $resolvedType,
                     'campaign_start_date' => $item->campaign_start_date,
-                    'campaign_end_date' => $item->campaign_end_date,
-                    'status' => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
+                    'campaign_end_date'   => $item->campaign_end_date,
+                    'status'              => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
                 ];
             });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Data KOL berhasil dimuat.',
-                'data' => $formatted
+                'data'    => $formatted,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal memuat data KOL: ' . $e->getMessage()
+                'message' => 'Gagal memuat data KOL: ' . $e->getMessage(),
             ], 500);
         }
     }
 
     /**
-     * Mengambil riwayat (Log History) seluruh campaign/tipe KOL berdasarkan username
+     * Mengambil riwayat (Log History) seluruh campaign/tipe KOL berdasarkan username (Exact Match)
      */
     public function getHistory($username)
     {
         try {
-            $cleanUsername = ltrim($username, '@');
+            $cleanUsername = strtolower(trim(ltrim($username, '@')));
 
             $histories = Kol::with('campaign')
-                            ->where('username', 'like', "%{$cleanUsername}%")
-                            ->orWhere('username', $username)
-                            ->orderBy('campaign_start_date', 'desc')
-                            ->latest()
-                            ->get();
+                ->whereRaw('LOWER(TRIM(LEADING "@" FROM username)) = ?', [$cleanUsername])
+                ->orderByDesc('status')
+                ->orderByDesc('campaign_start_date')
+                ->orderByDesc('id')
+                ->get();
 
             if ($histories->isEmpty()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Riwayat KOL tidak ditemukan.'
+                    'message' => 'Riwayat KOL tidak ditemukan.',
                 ], 404);
             }
 
-            $formattedHistories = $histories->map(function($item) {
-                $campaignName = optional($item->campaign)->campaign_name 
-                    ?? optional($item->campaign)->name 
-                    ?? optional($item->campaign)->title;
-
-                $resolvedType = $campaignName ?? ($item->type ? (is_numeric($item->type) ? 'Reguler' : $item->type) : 'Reguler');
+            $formattedHistories = $histories->map(function ($item) {
+                $resolvedType = $this->resolveCampaignType($item);
 
                 return [
-                    'id' => $item->id,
-                    'uid' => $item->uid,
-                    'name' => $item->name,
-                    'username' => $item->username,
+                    'id'            => $item->id,
+                    'uid'           => $item->uid,
+                    'name'          => $item->name,
+                    'username'      => $item->username,
                     'kode_referral' => $item->referral_code,
-                    'whatsapp' => $item->whatsapp,
-                    'city_name' => $item->city_name,
+                    'whatsapp'      => $item->whatsapp,
+                    'city_name'     => $item->city_name,
                     'province_name' => $item->province_name,
-                    'type' => $resolvedType,
-                    'start_date' => $item->campaign_start_date,
-                    'end_date' => $item->campaign_end_date,
-                    'status' => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
-                    'created_at' => $item->created_at,
+                    'type'          => $resolvedType,
+                    'start_date'    => $item->campaign_start_date,
+                    'end_date'      => $item->campaign_end_date,
+                    'status'        => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
+                    'created_at'    => $item->created_at,
                 ];
             });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Log history KOL berhasil dimuat.',
-                'data' => $formattedHistories
+                'data'    => $formattedHistories,
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal memuat log history: ' . $e->getMessage()
+                'message' => 'Gagal memuat log history: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -160,124 +128,106 @@ class KolController extends Controller
     public function checkExport(Request $request)
     {
         try {
-            $query = Kol::query();
-
-            if ($request->filled('search')) {
-                $search = $request->input('search');
-                $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('username', 'like', "%{$search}%")
-                      ->orWhere('referral_code', 'like', "%{$search}%")
-                      ->orWhere('whatsapp', 'like', "%{$search}%")
-                      ->orWhere('city_name', 'like', "%{$search}%")
-                      ->orWhere('province_name', 'like', "%{$search}%");
-                });
-            }
-
-            if ($request->filled('status') && !in_array($request->status, ['Semua', 'Semua Status', ''])) {
-                $statusVal = (strtoupper($request->status) === 'ACTIVE' || $request->status === '1') ? 1 : 0;
-                $query->where('status', $statusVal);
-            }
-
-            $count = $query->count();
+            $count = $this->buildFilteredQuery($request)->count();
 
             if ($count === 0) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Tidak ada data KOL yang tersedia untuk diexport.',
-                    'total' => 0
+                    'total'   => 0,
                 ], 404);
             }
 
             return response()->json([
                 'success' => true,
                 'message' => 'Data tersedia untuk diexport.',
-                'total' => $count
+                'total'   => $count,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal memeriksa data export: ' . $e->getMessage()
+                'message' => 'Gagal memeriksa data export: ' . $e->getMessage(),
             ], 500);
         }
     }
 
     /**
-     * Memproses data export Excel
+     * Memproses data export Excel dengan OpenSpout Writer & lebar kolom otomatis
      */
     public function export(Request $request)
     {
         try {
-            $query = Kol::with('campaign');
+            $kols = $this->buildFilteredQuery($request)->latest()->get();
 
-            if ($request->filled('search')) {
-                $search = $request->input('search');
-                $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('username', 'like', "%{$search}%")
-                      ->orWhere('referral_code', 'like', "%{$search}%")
-                      ->orWhere('whatsapp', 'like', "%{$search}%")
-                      ->orWhere('city_name', 'like', "%{$search}%")
-                      ->orWhere('province_name', 'like', "%{$search}%");
-                });
-            }
+            $fileName = 'Master_KOL_' . now()->format('Y-m-d') . '.xlsx';
+            $tempPath = storage_path('app/' . $fileName);
 
-            if ($request->filled('status') && !in_array($request->status, ['Semua', 'Semua Status', ''])) {
-                $statusVal = (strtoupper($request->status) === 'ACTIVE' || $request->status === '1') ? 1 : 0;
-                $query->where('status', $statusVal);
-            }
+            $options = new Options();
+            $writer = new Writer($options);
+            $writer->openToFile($tempPath);
 
-            $kols = $query->latest()->get();
+            $sheet = $writer->getCurrentSheet();
+            $sheet->setName('Master KOL');
 
-            $dataExport = $kols->map(function($item, $index) {
-                $campaignName = optional($item->campaign)->campaign_name 
-                    ?? optional($item->campaign)->name 
-                    ?? optional($item->campaign)->title;
+            // Atur lebar kolom secara eksplisit (1-based index: 1 = A, 2 = B, dst.)
+            $sheet->setColumnWidth(6, 1);   // A: No
+            $sheet->setColumnWidth(18, 2);  // B: Kode Referral
+            $sheet->setColumnWidth(26, 3);  // C: Nama KOL
+            $sheet->setColumnWidth(18, 4);  // D: Username
+            $sheet->setColumnWidth(20, 5);  // E: No. WhatsApp
+            $sheet->setColumnWidth(30, 6);  // F: Kota Asal
+            $sheet->setColumnWidth(24, 7);  // G: Provinsi
+            $sheet->setColumnWidth(20, 8);  // H: Tipe Campaign
+            $sheet->setColumnWidth(22, 9);  // I: Campaign Start
+            $sheet->setColumnWidth(22, 10); // J: Campaign End
+            $sheet->setColumnWidth(14, 11); // K: Status
 
-                $resolvedType = $campaignName ?? ($item->type ? (is_numeric($item->type) ? 'Reguler' : $item->type) : 'Reguler');
+            $headerStyle = (new Style())->setFontBold();
 
-                return [
-                    'No' => $index + 1,
-                    'Kode Referral' => $item->referral_code,
-                    'Nama KOL' => $item->name,
-                    'Username' => $item->username,
-                    'No. WhatsApp' => " " . $item->whatsapp,
-                    'Kota Asal' => $item->city_name,
-                    'Provinsi' => $item->province_name,
-                    'Tipe Campaign' => $resolvedType,
-                    'Mulai Campaign' => $item->campaign_start_date,
-                    'Selesai Campaign' => $item->campaign_end_date,
-                    'Status' => $item->status == 1 ? 'ACTIVE' : 'INACTIVE',
+            $headers = [
+                'No',
+                'Kode Referral',
+                'Nama KOL',
+                'Username',
+                'No. WhatsApp',
+                'Kota Asal',
+                'Provinsi',
+                'Tipe Campaign',
+                'Campaign Start',
+                'Campaign End',
+                'Status',
+            ];
+
+            $writer->addRow(Row::fromValues($headers, $headerStyle));
+
+            $no = 1;
+            foreach ($kols as $item) {
+                $resolvedType = $this->resolveCampaignType($item);
+
+                $rowValues = [
+                    $no++,
+                    $item->referral_code ?: '-',
+                    $item->name ?: '-',
+                    $item->username ?: '-',
+                    $item->whatsapp ? (string) $item->whatsapp : '-',
+                    $item->city_name ?: '-',
+                    $item->province_name ?: '-',
+                    $resolvedType,
+                    $item->campaign_start_date ?: '-',
+                    $item->campaign_end_date ?: '-',
+                    $item->status == 1 ? 'Aktif' : 'Nonaktif',
                 ];
-            })->toArray();
 
-            return Excel::create('data-kol-' . date('Y-m-d'), function($excel) use ($dataExport) {
-                $excel->sheet('Data KOL', function($sheet) use ($dataExport) {
-                    $sheet->fromArray($dataExport);
-                    
-                    $sheet->row(1, function($row) {
-                        $row->setFontWeight('bold');
-                    });
-                    
-                    $delegate = $sheet->getDelegate();
-                    $delegate->getColumnDimension('A')->setWidth(8);
-                    $delegate->getColumnDimension('B')->setWidth(22);
-                    $delegate->getColumnDimension('C')->setWidth(25);
-                    $delegate->getColumnDimension('D')->setWidth(20);
-                    $delegate->getColumnDimension('E')->setWidth(18);
-                    $delegate->getColumnDimension('F')->setWidth(20);
-                    $delegate->getColumnDimension('G')->setWidth(20);
-                    $delegate->getColumnDimension('H')->setWidth(22);
-                    $delegate->getColumnDimension('I')->setWidth(20);
-                    $delegate->getColumnDimension('J')->setWidth(20);
-                    $delegate->getColumnDimension('K')->setWidth(15);
-                });
-            })->download('xlsx');
+                $writer->addRow(Row::fromValues($rowValues));
+            }
 
+            $writer->close();
+
+            return response()->download($tempPath, $fileName)->deleteFileAfterSend(true);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengexport data: ' . $e->getMessage()
+                'message' => 'Gagal mengexport data: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -293,15 +243,15 @@ class KolController extends Controller
             $city = $request->input('city_name') ?? $request->input('kota_asal');
 
             if (
-                empty($name) || 
-                !$request->filled('username') || 
-                !$request->filled('whatsapp') || 
-                empty($province) || 
+                empty($name) ||
+                !$request->filled('username') ||
+                !$request->filled('whatsapp') ||
+                empty($province) ||
                 empty($city)
             ) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Semua field formulir wajib diisi dengan lengkap.'
+                    'message' => 'Semua field formulir wajib diisi dengan lengkap.',
                 ], 422);
             }
 
@@ -319,24 +269,23 @@ class KolController extends Controller
             $kol = $this->kolService->createKol($data);
             $kolName = $kol->name ?? 'KOL';
 
-            // === INTEGRASI WHATSAPP FONNTE API SAAT STORE ===
             $this->sendFonnteNotification($kol);
 
             return response()->json([
                 'success' => true,
                 'message' => "KOL \"{$kolName}\" berhasil ditambahkan.",
-                'data' => $kol
+                'data'    => $kol,
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'KOL gagal dibuat: ' . $e->getMessage()
+                'message' => 'KOL gagal dibuat: ' . $e->getMessage(),
             ], 422);
         }
     }
 
     /**
-     * Memperbarui data KOL (Termasuk Toggle Status dan Integrasi Fonnte WhatsApp API)
+     * Memperbarui data KOL (Mendelegasikan versioning riwayat campaign & update profil ke KolService)
      */
     public function update(Request $request, mixed $id)
     {
@@ -345,58 +294,127 @@ class KolController extends Controller
 
             if (!$kol) {
                 return response()->json([
-                    'success' => false, 
-                    'message' => 'Data KOL tidak ditemukan di sistem.'
+                    'success' => false,
+                    'message' => 'Data KOL tidak ditemukan di sistem.',
                 ], 404);
             }
 
             $kolName = $kol->name ?? 'KOL';
 
-            // Jika hanya mengubah status (toggle)
+            // Jika hanya toggle status aktif/nonaktif
             if ($request->has('status') && count($request->all()) <= 2) {
-                $rawStatus = $request->input('status');
-                $statusVal = in_array(strtolower(trim((string)$rawStatus)), ['1', 'active', 'aktif', 'true'], true) ? 1 : 0;
-                
-                $kol->update(['status' => $statusVal]);
-                
+                $updatedKol = $this->kolService->updateKol($kol, ['status' => $request->input('status')]);
+
                 return response()->json([
                     'success' => true,
                     'message' => "Status KOL \"{$kolName}\" berhasil diubah.",
-                    'data' => $kol
-                ], 200);
-            } else {
-                $data = $request->all();
-                if (isset($data['nama_kol']) && !isset($data['name'])) {
-                    $data['name'] = $data['nama_kol'];
-                }
-                if (isset($data['provinsi']) && !isset($data['province_name'])) {
-                    $data['province_name'] = $data['provinsi'];
-                }
-                if (isset($data['kota_asal']) && !isset($data['city_name'])) {
-                    $data['city_name'] = $data['kota_asal'];
-                }
-
-                $updatedKol = $this->kolService->updateKol($kol, $data);
-                
-                if (!$updatedKol) {
-                    $updatedKol = $kol->fresh();
-                }
-
-                // === INTEGRASI WHATSAPP FONNTE API DENGAN DATA TERBARU ===
-                $this->sendFonnteNotification($updatedKol);
-
-                return response()->json([
-                    'success' => true,
-                    'message' => "Data KOL \"{$kolName}\" berhasil diperbarui dan pesan WhatsApp terkirim.",
-                    'data' => $updatedKol
+                    'data'    => $updatedKol,
                 ], 200);
             }
+
+            $data = $request->all();
+            if (isset($data['nama_kol']) && !isset($data['name'])) {
+                $data['name'] = $data['nama_kol'];
+            }
+            if (isset($data['provinsi']) && !isset($data['province_name'])) {
+                $data['province_name'] = $data['provinsi'];
+            }
+            if (isset($data['kota_asal']) && !isset($data['city_name'])) {
+                $data['city_name'] = $data['kota_asal'];
+            }
+
+            $updatedKol = $this->kolService->updateKol($kol, $data) ?? $kol->fresh();
+
+            $this->sendFonnteNotification($updatedKol);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Data KOL \"{$kolName}\" berhasil diperbarui dan pesan WhatsApp terkirim.",
+                'data'    => $updatedKol,
+            ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal memperbarui data: ' . $e->getMessage()
+                'message' => 'Gagal memperbarui data: ' . $e->getMessage(),
             ], 422);
         }
+    }
+
+    /**
+     * Menghapus data KOL secara permanen dari MySQL (Hard Delete)
+     */
+    public function destroy(mixed $id)
+    {
+        try {
+            $kol = Kol::where('id', $id)->orWhere('uid', $id)->first();
+            $kolName = $kol ? $kol->name : 'KOL';
+
+            $deleted = $this->kolService->deleteKol($id);
+
+            if (!$deleted) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Data KOL tidak ditemukan.',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "Data KOL \"{$kolName}\" berhasil dihapus.",
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menghapus data: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Helper query filter terpusat untuk index, checkExport, dan export
+     */
+    private function buildFilteredQuery(Request $request)
+    {
+        $query = Kol::with('campaign');
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('username', 'like', "%{$search}%")
+                  ->orWhere('referral_code', 'like', "%{$search}%")
+                  ->orWhere('whatsapp', 'like', "%{$search}%")
+                  ->orWhere('city_name', 'like', "%{$search}%")
+                  ->orWhere('province_name', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('status') && !in_array($request->status, ['Semua', 'Semua Status', ''])) {
+            $statusVal = (strtoupper($request->status) === 'ACTIVE' || $request->status === '1') ? 1 : 0;
+            $query->where('status', $statusVal);
+        }
+
+        if ($request->filled('start_date')) {
+            $query->where('campaign_start_date', '>=', $request->input('start_date'));
+        }
+
+        if ($request->filled('end_date')) {
+            $query->where('campaign_end_date', '<=', $request->input('end_date'));
+        }
+
+        return $query;
+    }
+
+    /**
+     * Helper resolusi nama/tipe campaign
+     */
+    private function resolveCampaignType($item): string
+    {
+        $campaignName = optional($item->campaign)->campaign_name
+            ?? optional($item->campaign)->name
+            ?? optional($item->campaign)->title;
+
+        return $campaignName ?? ($item->type ? (is_numeric($item->type) ? 'Reguler' : $item->type) : 'Reguler');
     }
 
     /**
@@ -415,10 +433,7 @@ class KolController extends Controller
             $phone = '62' . substr($phone, 1);
         }
 
-        $campaignType = optional($kol->campaign)->campaign_name 
-            ?? optional($kol->campaign)->name 
-            ?? ($kol->type ? (is_numeric($kol->type) ? 'Reguler' : $kol->type) : 'Reguler');
-
+        $campaignType = $this->resolveCampaignType($kol);
         $referralCode = $kol->referral_code ?? '-';
         $startDate = $kol->campaign_start_date ?? '-';
         $endDate = $kol->campaign_end_date ?? '-';
@@ -436,8 +451,8 @@ class KolController extends Controller
             $response = Http::withHeaders([
                 'Authorization' => env('FONNTE_API_TOKEN'),
             ])->post('https://api.fonnte.com/send', [
-                'target' => $phone,
-                'message' => $message,
+                'target'      => $phone,
+                'message'     => $message,
                 'countryCode' => '62',
             ]);
 
@@ -448,36 +463,6 @@ class KolController extends Controller
             }
         } catch (\Exception $e) {
             Log::error('Exception Fonnte API: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Menghapus data KOL secara permanen dari MySQL (Hard Delete)
-     */
-    public function destroy(mixed $id)
-    {
-        try {
-            $kol = Kol::where('id', $id)->orWhere('uid', $id)->first();
-            $kolName = $kol ? $kol->name : 'KOL';
-
-            $deleted = $this->kolService->deleteKol($id);
-
-            if (!$deleted) {
-                return response()->json([
-                    'success' => false, 
-                    'message' => 'Data KOL tidak ditemukan.'
-                ], 404);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => "Data KOL \"{$kolName}\" berhasil dihapus."
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal menghapus data: ' . $e->getMessage()
-            ], 422);
         }
     }
 }
