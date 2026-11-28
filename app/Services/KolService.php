@@ -27,6 +27,41 @@ class KolService
         }
     }
 
+    private function getReferralCodeMaxLength(): int
+    {
+        try {
+            $columnInfo = DB::selectOne("
+                SELECT CHARACTER_MAXIMUM_LENGTH AS max_len
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'kols'
+                  AND COLUMN_NAME = 'referral_code'
+            ");
+
+            if ($columnInfo && !empty($columnInfo->max_len)) {
+                return (int) $columnInfo->max_len;
+            }
+        } catch (\Exception $e) {
+            // Abaikan jika bukan MySQL/information_schema tidak tersedia
+        }
+
+        return 15;
+    }
+
+    private function buildArchivedReferralCode(?string $currentCode, int|string $kolId): string
+    {
+        $maxLen = $this->getReferralCodeMaxLength();
+        $cleanBase = preg_replace('/-(HIST|H)\d+$/i', '', (string) $currentCode);
+        $suffix = '-H' . $kolId;
+
+        if (strlen($suffix) >= $maxLen) {
+            return substr((string) $kolId, -$maxLen);
+        }
+
+        $allowedBaseLen = $maxLen - strlen($suffix);
+        return substr($cleanBase, 0, $allowedBaseLen) . $suffix;
+    }
+
     private function getProvinceMapping(mixed $input): array
     {
         $provinceMap = [
@@ -271,12 +306,13 @@ class KolService
                 $newProvinceId, $newProvinceName, $newCityId, $newCityName,
                 $newTypeId, $newStartDate, $newEndDate, $newStatus
             ) {
-                $activeReferralCode = $kol->referral_code;
+                $activeReferralCode = preg_replace('/-(HIST|H)\d+$/i', '', (string) $kol->referral_code);
+                $archivedReferralCode = $this->buildArchivedReferralCode($activeReferralCode, $kol->id);
 
-                // Arsipkan baris lama (nonaktif) & bebaskan kode referral utama jika kolom referral_code memiliki indeks UNIQUE
+                // Arsipkan baris lama (nonaktif) & bebaskan kode referral utama agar tidak bentrok UNIQUE
                 $kol->update([
                     'status' => 0,
-                    'referral_code' => $activeReferralCode . '-HIST-' . $kol->id,
+                    'referral_code' => $archivedReferralCode,
                 ]);
 
                 $newKol = Kol::create([
