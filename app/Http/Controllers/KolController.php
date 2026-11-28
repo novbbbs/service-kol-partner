@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Kol;
 use App\Services\KolService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -435,8 +436,12 @@ class KolController extends Controller
 
         $campaignType = $this->resolveCampaignType($kol);
         $referralCode = $kol->referral_code ?? '-';
-        $startDate = $kol->campaign_start_date ?? '-';
-        $endDate = $kol->campaign_end_date ?? '-';
+        $startDate = $kol->campaign_start_date
+            ? Carbon::parse($kol->campaign_start_date)->format('Y-m-d')
+            : '-';
+        $endDate = $kol->campaign_end_date
+            ? Carbon::parse($kol->campaign_end_date)->format('Y-m-d')
+            : '-';
 
         $message = "Halo *{$kol->name}* (@{$kol->username}),\n\n" .
                    "Data Campaign KOL Anda telah diperbarui:\n" .
@@ -445,7 +450,7 @@ class KolController extends Controller
                    "📅 *Mulai Campaign*: {$startDate}\n" .
                    "📅 *Selesai Campaign*: {$endDate}\n" .
                    "📍 *Kota Asal*: " . ($kol->city_name ?? '-') . ", " . ($kol->province_name ?? '-') . "\n\n" .
-                   "Terima kasih atas partisipasi Anda di Saloka AppSys!";
+                   "Terima kasih atas partisipasi Anda di Saloka";
 
         try {
             $response = Http::withHeaders([

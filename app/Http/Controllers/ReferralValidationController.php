@@ -16,10 +16,6 @@ class ReferralValidationController extends Controller
         try {
             $request->validate([
                 'referral_code' => 'required|string',
-                'price' => 'nullable|numeric|min:0',
-                'ticket_price' => 'nullable|numeric|min:0',
-                'original_price' => 'nullable|numeric|min:0',
-                'qty' => 'nullable|integer|min:1',
             ]);
 
             $code = trim($request->input('referral_code'));
@@ -78,23 +74,6 @@ class ReferralValidationController extends Controller
                 ? max(0, (int) ($campaign->discount ?? 0))
                 : 0;
 
-            // Cek jika web pembelian ikut mengirimkan harga (asumsi: total harga sebelum diskon)
-            $rawPrice = $request->input('original_price')
-                ?? $request->input('ticket_price')
-                ?? $request->input('price');
-
-            $qty = max(1, (int) ($request->input('qty', 1)));
-            $originalPrice = $rawPrice !== null ? max(0, (int) $rawPrice) : null;
-            $rawTotalDiscount = $discount * $qty;
-
-            $effectiveDiscount = $originalPrice !== null
-                ? min($rawTotalDiscount, $originalPrice)
-                : $rawTotalDiscount;
-
-            $finalPrice = $originalPrice !== null
-                ? max(0, $originalPrice - $effectiveDiscount)
-                : null;
-
             return response()->json([
                 'success' => true,
                 'message' => 'Kode referral valid.',
@@ -106,9 +85,6 @@ class ReferralValidationController extends Controller
                     'type' => $resolvedCampaignType,
                     'type_id' => $campaign ? $campaign->id : (is_numeric($rawType) ? (int) $rawType : null),
                     'discount' => $discount,
-                    'total_discount' => $effectiveDiscount,
-                    'original_price' => $originalPrice,
-                    'final_price' => $finalPrice,
                 ]
             ], 200);
 
